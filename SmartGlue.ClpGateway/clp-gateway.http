@@ -1,0 +1,242 @@
+@gateway = http://127.0.0.1:5180/api
+@backend = http://127.0.0.1:5113/api
+
+### O token vem do backend — o gateway só valida, nunca emite.
+# @name login
+POST {{backend}}/auth/login
+Content-Type: application/json
+
+{
+  "registration": "",
+  "password": ""
+}
+
+@token = {{login.response.body.data.accessToken}}
+@programId = 00000000-0000-0000-0000-000000000000
+
+### Health — inclui o estado do socket Modbus e se há rotina rodando
+GET {{gateway}}/health
+Accept: application/json
+
+### Status do eixo/câmera
+GET {{gateway}}/axis/status
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Limites de eixo (X/Y) — lidos ao vivo do CLP. É o que o desktop consulta no cadastro.
+GET {{gateway}}/axis/limits
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Retornar ao ponto zero (HOME) — conclui pelos bits de referenciamento, não por MOVE_DONE
+POST {{gateway}}/axis/zero
+Authorization: Bearer {{token}}
+
+### Mover câmera para X/Y (recusado com 409 enquanto uma rotina estiver rodando)
+POST {{gateway}}/axis/move
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "positionX": 12,
+  "positionY": 5
+}
+
+### STOP — sem restrição de perfil, não espera comando em voo, nunca é recusado
+POST {{gateway}}/axis/stop
+Authorization: Bearer {{token}}
+
+### Resetar falha (obrigatório depois de um STOP: a máquina fica em 1006 STOPPED)
+POST {{gateway}}/axis/fault-reset
+Authorization: Bearer {{token}}
+
+### Rodar rotina buscando os pontos no backend (o gateway repassa este token)
+# @name run
+POST {{gateway}}/routines/run
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "programId": "{{programId}}"
+}
+
+@runId = {{run.response.body.data.runId}}
+
+### Rodar rotina com os pontos inline — contingência: não toca o backend
+POST {{gateway}}/routines/run
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "points": [
+    { "id": "11111111-1111-1111-1111-111111111111", "order": 0, "positionX": 10, "positionY": 10 },
+    { "id": "22222222-2222-2222-2222-222222222222", "order": 1, "positionX": 20, "positionY": 15 }
+  ]
+}
+
+### Progresso da rotina
+GET {{gateway}}/routines/{{runId}}
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Execuções recentes (em memória, perdidas no restart)
+GET {{gateway}}/routines
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Parar a rotina (cancela o laço E pulsa STOP na máquina)
+POST {{gateway}}/routines/{{runId}}/stop
+Authorization: Bearer {{token}}
+
+### [SGF-163] Quadro atual da câmera + a geometria que o localiza na placa
+# A imagem volta em base64 junto com o centro X/Y (mm) e o tamanho que o quadro cobre — é o
+# que permite converter um clique na imagem em um alvo X/Y em milímetros. Requer o servidor de
+# visão do simulador no ar (SmartGlue_Machine_Mock, HTTP em 127.0.0.1:8080).
+GET {{gateway}}/camera/snapshot
+Accept: application/json
+Authorization: Bearer {{token}}
+
+################################################################################
+# [SGF-141] Estação de aplicação — a aplicadora de cola
+#
+# A outra estação da mesma máquina. Tem um eixo a mais (Z), câmera própria e
+# limites próprios. MOVE_XY captura X, Y e SPEED_XY; MOVE_Z captura Z e SPEED_Z,
+# e um nunca toca no bloco do outro.
+################################################################################
+
+### [SGF-141] Status da aplicadora — X/Y/Z e os bits de referenciamento
+# Uma máquina recém-ligada mostra 0,0,0 E referenced=false: é por isso que os
+# sinalizadores existem, a coordenada sozinha não distingue isso de uma máquina
+# referenciada parada na origem.
+GET {{gateway}}/application/status
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### [SGF-141] Limites da aplicadora (X/Y/Z), lidos ao vivo
+GET {{gateway}}/application/limits
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### [SGF-141] Referenciar a aplicadora (X, Y e Z)
+POST {{gateway}}/application/zero
+Authorization: Bearer {{token}}
+
+### [SGF-141] Mover a aplicadora em X/Y
+# speedPulsesPerSecond é opcional e vai na unidade da máquina. O 0–100 da tela
+# NÃO é velocidade: a conversão depende de calibração que ainda não existe.
+POST {{gateway}}/application/move
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "positionX": 40,
+  "positionY": 30
+}
+
+### [SGF-141] Mover só o eixo Z — comando separado por contrato
+POST {{gateway}}/application/move-z
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "positionZ": -2,
+  "speedPulsesPerSecond": 15000
+}
+
+### [SGF-141] JOG — nível mantido, com deadman no gateway
+# active=true segura a direção e precisa ser reenviado enquanto a seta estiver
+# pressionada; sem refresh dentro de AxisHardware:JogDeadmanMs o gateway solta o
+# eixo sozinho. Uma janela fechada não pode deixar um eixo andando até o limite.
+POST {{gateway}}/application/jog
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "axis": "X",
+  "direction": 1,
+  "active": true
+}
+
+### [SGF-141] Soltar o JOG
+POST {{gateway}}/application/jog
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "axis": "X",
+  "direction": 1,
+  "active": false
+}
+
+### [SGF-141] STOP da aplicadora — solta o jog e pulsa STOP, nunca é recusado
+POST {{gateway}}/application/stop
+Authorization: Bearer {{token}}
+
+### [SGF-141] Reset de falha da aplicadora (obrigatório depois de um STOP)
+POST {{gateway}}/application/fault-reset
+Authorization: Bearer {{token}}
+
+### [SGF-141] Quadro da câmera da aplicação
+# Cada estação enxerga a placa pela própria lente e da própria posição: o quadro
+# vem sempre emparelhado com as coordenadas DELA.
+GET {{gateway}}/camera/application/snapshot
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### [SGF-141] "Iniciar Teste" — ensaio a seco da trajetória (critério 7)
+# Sobe para travelZ, e em cada ponto: move X/Y, desce para applicationZ, espera
+# o pré/pós-dispensamento de cada unidade (SGF-278) e sobe de novo (line sobe só no último; point sobe entre todos).
+# Coordenadas em MILÍMETROS: converter um desenho em pixels é trabalho da tela
+# que é dona da imagem, não deste processo.
+# @name dryRun
+POST {{gateway}}/routines/dry-run
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "markName": "Cordao superior",
+  "kind": "line",
+  "points": [
+    { "positionX": 15, "positionY": 15, "preDispenseMs": 150, "postDispenseMs": 0 },
+    { "positionX": 55, "positionY": 15 },
+    { "positionX": 55, "positionY": 45 }
+  ],
+  "applicationZ": -2,
+  "travelZ": 0,
+  "preDispenseMs": 100,
+  "postDispenseMs": 50,
+  "homeIfNeeded": true
+}
+
+@dryRunId = {{dryRun.response.body.data.runId}}
+
+### [SGF-141] Acompanhar o ensaio
+GET {{gateway}}/routines/{{dryRunId}}
+Authorization: Bearer {{token}}
+
+################################################################################
+# [SGF-141 §5 / SGF-144] Rastro e evidência
+################################################################################
+
+### [SGF-141] Sessões de rastro gravadas em disco (uma por conexão)
+# @name sessions
+GET {{gateway}}/traces
+Authorization: Bearer {{token}}
+
+@sessionId = {{sessions.response.body.data.0.sessionId}}
+
+### [SGF-141] Frames Modbus deste ensaio — filtre por runId, commandId, outcome ou fc
+GET {{gateway}}/traces/{{sessionId}}/transport?runId={{dryRunId}}&take=50
+Authorization: Bearer {{token}}
+
+### [SGF-141] Fases do ciclo de comando
+GET {{gateway}}/traces/{{sessionId}}/engine?runId={{dryRunId}}
+Authorization: Bearer {{token}}
+
+### [SGF-141] Resumo do ensaio, como ficou gravado em disco
+GET {{gateway}}/runs/{{dryRunId}}
+Authorization: Bearer {{token}}
+
+### [SGF-144] Pacote de evidência do ensaio (application/zip, fora do envelope)
+GET {{gateway}}/runs/{{dryRunId}}/evidence
+Authorization: Bearer {{token}}

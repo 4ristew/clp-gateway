@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SmartGlue.ClpGateway</RootNamespace>
+    <AssemblyName>SmartGlue.ClpGateway</AssemblyName>
+    <UserSecretsId>b7c1f4e2-9a3d-4c58-8f21-6d0e7a4b9c33</UserSecretsId>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Carter" Version="10.0.0" />
+    <PackageReference Include="FluentModbus" Version="5.3.2" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
+    <!-- Pinned above the 2.0.0 that Microsoft.AspNetCore.OpenApi drags in: that version carries
+         GHSA-v5pm-xwqc-g5wc (high). The backend still has the transitive 2.0.0. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.13.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SmartGlue.ClpGateway.Tests" />
+  </ItemGroup>
+
+</Project>
